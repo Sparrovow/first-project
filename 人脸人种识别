@@ -1,0 +1,92 @@
+import os
+import cv2
+import numpy as np
+from deepface import DeepFace
+from PIL import Image, ImageDraw, ImageFont
+
+def draw_label_cn(img_cv2, text, x, y, font_path=r"C:\Windows\Fonts\simhei.ttf", font_size=20, color=(255, 255, 255)):
+    img_pil = Image.fromarray(cv2.cvtColor(img_cv2, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(img_pil)
+    font = ImageFont.truetype(font_path, font_size)
+    draw.text((x, y), text, font=font, fill=color)
+    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+
+def detect_and_display_face(image_path):
+    try:
+        results = DeepFace.analyze(
+            img_path=image_path,
+            actions=['gender', 'race'],
+            enforce_detection=False,
+            detector_backend='retinaface'
+        )
+
+        # 兼容多模型结构
+        if isinstance(results, list):
+            faces = results
+        elif isinstance(results, dict) and "instance_1" in results:
+            faces = list(results.values())
+        else:
+            faces = [results]
+
+        img = cv2.imread(image_path)
+
+        for face in faces:
+            region = face.get("region", None)
+            if not region:
+                continue
+
+            x, y, w, h = region.get("x", 0), region.get("y", 0), region.get("w", 0), region.get("h", 0)
+            x, y = max(0, x), max(0, y)
+
+            # 获取性别
+            gender = face.get("gender", "未知")
+            if isinstance(gender, dict):
+                gender = max(gender.items(), key=lambda item: item[1])[0]
+
+            # 获取人种
+            race_info = face.get("race", {})
+            if isinstance(race_info, dict):
+                race = max(race_info.items(), key=lambda item: item[1])[0]
+            else:
+                race = "未知"
+
+            gender_cn = "男" if gender.lower() == "man" else "女" if gender.lower() == "woman" else gender
+            race_map = {
+                "asian": "亚洲人", "white": "白人", "black": "黑人",
+                "indian": "印度人", "middle eastern": "中东人", "latino hispanic": "拉丁裔"
+            }
+            race_cn = race_map.get(race.lower(), race)
+
+            label = f"{gender_cn} · {race_cn}"
+
+            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            img = draw_label_cn(img, label, x, y - 25)
+
+        return img
+
+    except Exception as e:
+        print(f"❌ 检测失败: {str(e)}")
+        return None
+
+# 主程序
+input_folder = r"D:\photooo"
+output_folder = r"D:\result"
+os.makedirs(output_folder, exist_ok=True)
+
+for filename in os.listdir(input_folder):
+    if not filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+        continue
+
+    image_path = os.path.join(input_folder, filename)
+    output_path = os.path.join(output_folder, filename)
+
+    print(f"--- 开始处理: {filename} ---")
+    result_img = detect_and_display_face(image_path)
+
+    if result_img is not None:
+        cv2.imwrite(output_path, result_img)
+        print(f"✅ 已保存: {output_path}")
+    else:
+        print(f"⚠️ 图像处理失败: {filename}")
+
+print("🎉 所有图片处理完成！")
